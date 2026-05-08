@@ -88,16 +88,64 @@ def run_download(job_id, url, format_choice, format_id):
                 except OSError:
                     pass
 
-        job["status"] = "done"
         job["file"] = chosen
         ext = os.path.splitext(chosen)[1]
-        title = job.get("title", "").strip()
-        # Sanitize title for filename
-        if title:
-            safe_title = "".join(c for c in title if c not in r'\/:*?"<>|').strip()[:20].strip()
-            job["filename"] = f"{safe_title}{ext}" if safe_title else os.path.basename(chosen)
+        
+        custom_name = job.get("custom_name", "").strip()
+        if custom_name:
+            safe_custom = "".join(c for c in custom_name if c not in r'\/:*?"<>|').strip()[:50].strip()
+            job["filename"] = f"{safe_custom}{ext}" if safe_custom else os.path.basename(chosen)
         else:
-            job["filename"] = os.path.basename(chosen)
+            title = job.get("title", "").strip()
+            if title:
+                safe_title = "".join(c for c in title if c not in r'\/:*?"<>|').strip()[:50].strip()
+                job["filename"] = f"{safe_title}{ext}" if safe_title else os.path.basename(chosen)
+            else:
+                job["filename"] = os.path.basename(chosen)
+
+        # Extract posters using ffmpeg
+        if format_choice != "audio":
+            try:
+                dur_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", chosen]
+                dur_output = subprocess.run(dur_cmd, capture_output=True, text=True).stdout.strip()
+                if dur_output:
+                    dur = float(dur_output)
+                    frames = {
+                        "first": 0,
+                        "sec2": 2 if dur > 2 else dur/2,
+                        "middle": dur / 2,
+                        "end2": dur - 2 if dur > 2 else dur/2,
+                        "last": dur - 0.1 if dur > 0.1 else 0
+                    }
+                    job["posters"] = {}
+                    for key, timestamp in frames.items():
+                        thumb_path = os.path.join(DOWNLOAD_DIR, f"{job_id}_{key}.jpg")
+                        cmd = ["ffmpeg", "-ss", str(timestamp), "-i", chosen, "-vframes", "1", "-q:v", "2", thumb_path, "-y"]
+                        subprocess.run(cmd, capture_output=True)
+                        if os.path.exists(thumb_path):
+                            job["posters"][key] = thumb_path
+            except Exception:
+                pass
+                
+            thumb_url = job.get("thumbnail")
+            if thumb_url:
+                try:
+                    import urllib.request
+                    orig_thumb_path = os.path.join(DOWNLOAD_DIR, f"{job_id}_original.jpg")
+                    req = urllib.request.Request(thumb_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        if resp.status == 200:
+                            with open(orig_thumb_path, "wb") as f:
+                                f.write(resp.read())
+                            if "posters" not in job: job["posters"] = {}
+                            # Prepend to the dict manually by creating a new one
+                            new_posters = {"original": orig_thumb_path}
+                            new_posters.update(job["posters"])
+                            job["posters"] = new_posters
+                except Exception:
+                    pass
+
+        job["status"] = "done"
     except subprocess.TimeoutExpired:
         job["status"] = "error"
         job["error"] = "Download timed out (5 min limit)"
@@ -186,12 +234,15 @@ def start_download():
     format_choice = data.get("format", "video")
     format_id = data.get("format_id")
     title = data.get("title", "")
+    custom_name = data.get("custom_name", "")
+    duration = data.get("duration", 0)
+    thumbnail = data.get("thumbnail", "")
 
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
     job_id = uuid.uuid4().hex[:10]
-    jobs[job_id] = {"status": "downloading", "url": url, "title": title}
+    jobs[job_id] = {"status": "downloading", "url": url, "title": title, "custom_name": custom_name, "duration": duration, "thumbnail": thumbnail}
 
     thread = threading.Thread(target=run_download, args=(job_id, url, format_choice, format_id))
     thread.daemon = True
@@ -210,6 +261,7 @@ def check_status(job_id):
         "status": job["status"],
         "error": job.get("error"),
         "filename": job.get("filename"),
+        "posters": list(job.get("posters", {}).keys()) if "posters" in job else []
     })
 
 
@@ -217,9 +269,24 @@ def check_status(job_id):
 @login_required
 def download_file(job_id):
     job = jobs.get(job_id)
-    if not job or job["status"] != "done":
-        return jsonify({"error": "File not ready"}), 404
-    return send_file(job["file"], as_attachment=True, download_name=job["filename"])
+    custom_filename = request.args.get('filename')
+    download_name = custom_filename if custom_filename else job["filename"]
+    
+    return send_file(job["file"], as_attachment=True, download_name=download_name)
+
+
+@app.route("/api/poster/<job_id>/<poster_id>")
+@login_required
+def download_poster(job_id, poster_id):
+    job = jobs.get(job_id)
+    if not job or "posters" not in job or poster_id not in job["posters"]:
+        return jsonify({"error": "Poster not found"}), 404
+    
+    is_download = request.args.get("download") == "1"
+    base_name = os.path.splitext(job.get("filename", "video"))[0]
+    filename = f"{base_name}.jpg"
+    
+    return send_file(job["posters"][poster_id], as_attachment=is_download, download_name=filename if is_download else None)
 
 
 if __name__ == "__main__":

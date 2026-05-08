@@ -146,6 +146,7 @@
 
     .card {
       display: flex;
+      flex-direction: column;
       gap: 14px;
       border: 1.5px solid var(--card-border);
       border-radius: var(--radius);
@@ -153,6 +154,10 @@
       padding: 14px;
       margin-bottom: 10px;
       animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .card-top {
+      display: flex;
+      gap: 14px;
     }
     @keyframes slideUp {
       from { opacity: 0; transform: translateY(12px); }
@@ -378,6 +383,65 @@
       .controls { flex-wrap: wrap; }
       .fetch-btn { width: 100%; }
     }
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(58, 58, 56, 0.4); backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+      z-index: 100; opacity: 0; transition: opacity 0.2s;
+    }
+    .modal-overlay.active { display: flex; opacity: 1; }
+    .modal {
+      background: var(--bg); border: 1.5px solid var(--card-border);
+      border-radius: var(--radius); padding: 24px;
+      width: 90%; max-width: 400px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      transform: scale(0.95); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .modal-overlay.active .modal { transform: scale(1); }
+    .modal h3 {
+      font-family: 'Instrument Serif', serif; font-size: 1.8rem;
+      font-weight: 400; margin-bottom: 12px; color: var(--fg);
+    }
+    .modal-input {
+      width: 100%; padding: 12px 14px;
+      border: 1.5px solid var(--card-border); border-radius: 8px;
+      background: var(--card); color: var(--fg);
+      font-family: 'DM Mono', monospace; font-size: 0.82rem;
+      outline: none; margin-bottom: 16px; transition: border-color 0.2s;
+    }
+    .modal-input:focus { border-color: var(--accent); }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+    .modal-btn {
+      padding: 8px 16px; border: none; border-radius: 8px;
+      font-family: 'DM Mono', monospace; font-size: 0.78rem;
+      font-weight: 500; cursor: pointer; transition: all 0.2s;
+    }
+    .modal-btn-cancel {
+      background: transparent; color: var(--muted); border: 1.5px solid var(--card-border);
+    }
+    .modal-btn-cancel:hover { color: var(--fg); border-color: var(--muted); }
+    .modal-btn-confirm { background: var(--accent); color: #fff; }
+    .modal-btn-confirm:hover { background: var(--accent-hover); }
+
+    /* Poster Gallery */
+    .poster-gallery {
+      display: flex; gap: 8px; margin-top: 16px; width: 100%;
+    }
+    .poster-item {
+      flex: 1; min-width: 0;
+      border-radius: 8px; overflow: hidden;
+      border: 1.5px solid var(--card-border);
+      cursor: pointer; transition: border-color 0.2s;
+      position: relative;
+    }
+    .poster-item:hover { border-color: var(--accent); }
+    .poster-item img { width: 100%; height: auto; display: block; }
+    .poster-label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(0,0,0,0.6); color: #fff;
+      font-size: 0.75rem; text-align: center; padding: 6px 0;
+    }
   </style>
 </head>
 <body>
@@ -404,6 +468,17 @@
       YouTube &middot; TikTok &middot; Instagram &middot; Twitter/X &middot; Reddit &middot; Facebook<br>
       Vimeo &middot; Twitch &middot; Dailymotion &middot; SoundCloud &middot; Loom &middot; Streamable<br>
       Pinterest &middot; Tumblr &middot; Threads &middot; LinkedIn &middot; 1000+ more
+    </div>
+  </div>
+
+  <div id="downloadAsModal" class="modal-overlay">
+    <div class="modal">
+      <h3>Download As...</h3>
+      <input type="text" id="downloadAsInput" class="modal-input" placeholder="filename">
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-cancel" onclick="closeModal()">Cancel</button>
+        <button class="modal-btn modal-btn-confirm" onclick="confirmDownloadAs()">Download</button>
+      </div>
     </div>
   </div>
 
@@ -517,10 +592,12 @@
       if (c.status === 'loading') {
         el.className = 'card';
         el.innerHTML = `
-          <div class="card-thumb loading"></div>
-          <div class="card-body">
-            <div class="skeleton-line medium"></div>
-            <div class="skeleton-line short"></div>
+          <div class="card-top">
+            <div class="card-thumb loading"></div>
+            <div class="card-body">
+              <div class="skeleton-line medium"></div>
+              <div class="skeleton-line short"></div>
+            </div>
           </div>
         `;
         return;
@@ -530,15 +607,17 @@
       if (c.status === 'info-error') {
         el.className = 'card card-error';
         el.innerHTML = `
-          <div class="card-thumb">
-            <div class="card-error-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <div class="card-top">
+            <div class="card-thumb">
+              <div class="card-error-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              </div>
             </div>
-          </div>
-          <div class="card-body">
-            <div class="card-title" style="color:var(--error)">Could not fetch video</div>
-            <div class="card-error-msg">${esc(friendlyError(c.error || ''))}</div>
-            <div class="card-error-url">${esc(c.url)}</div>
+            <div class="card-body">
+              <div class="card-title" style="color:var(--error)">Could not fetch video</div>
+              <div class="card-error-msg">${esc(friendlyError(c.error || ''))}</div>
+              <div class="card-error-url">${esc(c.url)}</div>
+            </div>
           </div>
         `;
         return;
@@ -559,31 +638,58 @@
 
       let qualityChips = '';
       if (!isAudio && c.formats && c.formats.length > 1) {
-        qualityChips = c.formats.map(f =>
+        qualityChips = '<div style="width: 100%; height: 0; margin: 0;"></div>' + c.formats.map(f =>
           `<button class="q-chip${f.id === c.selectedFormatId ? ' active' : ''}" onclick="pickFormat(${idx}, '${f.id}')">${f.label}</button>`
         ).join('');
       }
 
       let actionHtml = '';
       if (c.status === 'ready') {
-        actionHtml = `<button class="card-dl-btn" onclick="dlCard(${idx})">Download</button>${qualityChips}`;
+        actionHtml = `<button class="card-dl-btn" onclick="dlCard(${idx})">Download</button>
+          <button class="card-dl-btn" style="background:transparent; color:var(--fg); border:1.5px solid var(--card-border)" onclick="showDownloadAsModal(${idx})">Download as...</button>
+          ${qualityChips}`;
       } else if (c.status === 'downloading') {
         actionHtml = `<span class="card-status downloading"><span class="spin"></span> Downloading...</span>`;
       } else if (c.status === 'done') {
-        actionHtml = `<button class="card-dl-btn done" onclick="saveCard(${idx})">Save</button>
-          <span class="card-status done">${esc(c.filename || '')}</span>`;
+        actionHtml = `<div style="font-weight: 500; font-size: 0.85rem; color: var(--fg); margin-top: 4px;">Video Downloaded: <span style="color: var(--success); font-weight: normal;">${esc(c.filename || '')}</span></div>`;
       } else if (c.status === 'error') {
         actionHtml = `<button class="card-dl-btn" onclick="dlCard(${idx})">Retry</button>
           <span class="card-status error">${esc(friendlyError(c.error || 'Download failed'))}</span>`;
       }
 
+      let posterHtml = '';
+      if (c.status === 'done' && c.posters && c.posters.length > 0) {
+        const labels = { "original": "Original", "first": "First", "sec2": "2 sec", "middle": "middle", "end2": "-2 sec", "last": "Last" };
+        const items = c.posters.map(p => {
+          if (p === 'original' && c.posters.length > 5) return ''; // optionally filter it out, but user asked to keep it.
+          return `
+          <div class="poster-item" onclick="downloadPoster(${idx}, '${p}')" title="Download ${labels[p] || p}">
+            <img src="/api/poster/${c.jobId}/${p}" />
+            <div class="poster-label">${labels[p] || p}</div>
+          </div>
+        `}).join('');
+        posterHtml = `
+          <div style="text-align: center; margin-top: 16px; margin-bottom: 2px; font-family: 'DM Mono', monospace; font-size: 1.2rem; font-weight: 500; color: var(--fg);">Choose Poster Image</div>
+          <div class="poster-gallery">${items}</div>
+        `;
+      }
+      
+      let posterMsgHtml = '';
+      if (c.downloadedPoster) {
+        posterMsgHtml = `<div style="font-weight: 500; font-size: 0.85rem; color: var(--fg); margin-top: 12px; text-align: center;">Poster Downloaded: <span style="color: var(--success); font-weight: normal;">${esc(c.downloadedPoster)}</span></div>`;
+      }
+
       el.innerHTML = `
-        <div class="card-thumb">${thumbHtml}</div>
-        <div class="card-body">
-          <div class="card-title">${esc(c.title || 'Untitled')}</div>
-          <div class="card-meta">${esc(c.uploader)}${c.duration ? ' · ' + fmtDur(c.duration) : ''}</div>
-          <div class="card-actions">${actionHtml}</div>
+        <div class="card-top">
+          <div class="card-thumb">${thumbHtml}</div>
+          <div class="card-body">
+            <div class="card-title">${esc(c.title || 'Untitled')}</div>
+            <div class="card-meta">${esc(c.uploader)}${c.duration ? ' · ' + fmtDur(c.duration) : ''}</div>
+            <div class="card-actions">${actionHtml}</div>
+          </div>
         </div>
+        ${posterHtml}
+        ${posterMsgHtml}
       `;
     }
 
@@ -618,6 +724,9 @@
             format: currentFormat,
             format_id: c.selectedFormatId,
             title: c.title || '',
+            custom_name: c.customName || '',
+            duration: c.duration || 0,
+            thumbnail: c.thumbnail || '',
           }),
         });
         const data = await res.json();
@@ -646,6 +755,7 @@
             clearInterval(iv);
             c.status = 'done';
             c.filename = data.filename;
+            c.posters = data.posters || [];
             renderCard(idx);
             saveCard(idx);
           } else if (data.status === 'error') {
@@ -666,10 +776,67 @@
     function saveCard(idx) {
       const c = cardData[idx];
       if (!c.jobId) return;
+      window.location.assign(`/api/file/${c.jobId}`);
+    }
+
+    let downloadAsIdx = null;
+
+    function showDownloadAsModal(idx) {
+      downloadAsIdx = idx;
+      const c = cardData[idx];
+      const input = document.getElementById('downloadAsInput');
+      
+      // Default to sanitized title
+      let defaultName = c.title || 'video';
+      defaultName = defaultName.replace(/[\/\:\*\?\"\<\>\|]/g, '').trim().substring(0, 50);
+      
+      input.value = defaultName;
+      const modal = document.getElementById('downloadAsModal');
+      modal.style.display = 'flex';
+      modal.offsetHeight; // force reflow
+      modal.classList.add('active');
+      input.focus();
+      input.select();
+    }
+
+    function closeModal() {
+      const modal = document.getElementById('downloadAsModal');
+      modal.classList.remove('active');
+      setTimeout(() => { modal.style.display = 'none'; }, 200);
+      downloadAsIdx = null;
+    }
+
+    function confirmDownloadAs() {
+      if (downloadAsIdx === null) return;
+      const c = cardData[downloadAsIdx];
+      const newName = document.getElementById('downloadAsInput').value.trim();
+      
+      if (!newName) {
+        closeModal();
+        return;
+      }
+      
+      c.customName = newName;
+      const idx = downloadAsIdx;
+      closeModal();
+      dlCard(idx);
+    }
+
+    document.getElementById('downloadAsInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') confirmDownloadAs();
+      if (e.key === 'Escape') closeModal();
+    });
+
+    function downloadPoster(idx, posterId) {
+      const c = cardData[idx];
+      if (!c.jobId) return;
       const a = document.createElement('a');
-      a.href = `/api/file/${c.jobId}`;
-      a.download = c.filename || '';
+      a.href = `/api/poster/${c.jobId}/${posterId}?download=1`;
       a.click();
+      
+      let baseName = c.filename ? c.filename.replace(/\.[^/.]+$/, "") : "video";
+      c.downloadedPoster = baseName + ".jpg";
+      renderCard(idx);
     }
 
     async function dlAll() {
