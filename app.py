@@ -4,9 +4,42 @@ import glob
 import json
 import subprocess
 import threading
-from flask import Flask, request, jsonify, send_file, render_template
+from functools import wraps
+from datetime import timedelta
+import bcrypt
+from flask import Flask, request, jsonify, send_file, render_template, session, redirect, url_for
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
+app.permanent_session_lifetime = timedelta(days=365)
+
+import sys
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
+try:
+    with open(CONFIG_PATH, "r") as f:
+        config = json.load(f)
+        ADMIN_PASSWORD_HASH = config.get("admin_password_hash", "").encode("utf-8")
+        if not ADMIN_PASSWORD_HASH:
+            raise ValueError("admin_password_hash is empty")
+except FileNotFoundError:
+    print("\n[ERROR] Configuration file missing!", file=sys.stderr)
+    print("Please create a 'config.json' file in the root directory with your bcrypt password hash.", file=sys.stderr)
+    print("Example:\n{\n  \"admin_password_hash\": \"$2y$10$...\"\n}\n", file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(f"\n[ERROR] Failed to load configuration from 'config.json': {e}", file=sys.stderr)
+    sys.exit(1)
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("logged_in"):
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated_function
+
 DOWNLOAD_DIR = os.path.join(os.path.dirname(__file__), "downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
@@ -73,12 +106,33 @@ def run_download(job_id, url, format_choice, format_id):
         job["error"] = str(e)
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        if bcrypt.checkpw(password.encode('utf-8'), ADMIN_PASSWORD_HASH):
+            session.permanent = True
+            session["logged_in"] = True
+            return redirect(url_for("index"))
+        else:
+            return render_template("login.html", error="Invalid password")
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.pop("logged_in", None)
+    return redirect(url_for("login"))
+
+
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 
 @app.route("/api/info", methods=["POST"])
+@login_required
 def get_info():
     data = request.json
     url = data.get("url", "").strip()
@@ -125,6 +179,7 @@ def get_info():
 
 
 @app.route("/api/download", methods=["POST"])
+@login_required
 def start_download():
     data = request.json
     url = data.get("url", "").strip()
@@ -146,6 +201,7 @@ def start_download():
 
 
 @app.route("/api/status/<job_id>")
+@login_required
 def check_status(job_id):
     job = jobs.get(job_id)
     if not job:
@@ -158,6 +214,7 @@ def check_status(job_id):
 
 
 @app.route("/api/file/<job_id>")
+@login_required
 def download_file(job_id):
     job = jobs.get(job_id)
     if not job or job["status"] != "done":

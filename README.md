@@ -22,19 +22,44 @@ https://github.com/user-attachments/assets/419d3e50-c933-444b-8cab-a9724986ba05
 ## Quick Start
 
 ```bash
-brew install yt-dlp ffmpeg    # or apt install ffmpeg && pip install yt-dlp
-git clone https://github.com/averygan/reclip.git
+# 1. Install dependencies
+sudo apt update
+sudo apt install -y ffmpeg python3-venv
+
+# 2. Clone repository
+git clone https://github.com/mscalora/reclip.git
 cd reclip
-./reclip.sh
+
+# 3. Set up Python virtual environment
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 4. Generate the password configuration
+python setup_password.py
+
+# 5. Run the dev server
+flask run --host=127.0.0.1 --port=8899
 ```
 
 Open **http://localhost:8899**.
 
-Or with Docker:
+## Systemd Deployment (Ubuntu)
+
+For a persistent deployment on Ubuntu, you can install ReClip as a `systemd` service. This will create a dedicated `reclip` system user, copy the files to `/opt/reclip`, and ensure the application starts automatically on boot.
+
+1. Ensure you have generated your `config.json` file using `setup_password.py` first!
+2. Run the included installation script with `sudo`:
 
 ```bash
-docker build -t reclip . && docker run -p 8899:8899 reclip
+chmod +x install_service.sh
+sudo ./install_service.sh
 ```
+
+You can then manage the service using standard `systemctl` commands:
+- `sudo systemctl status reclip`
+- `sudo systemctl restart reclip`
+- `sudo journalctl -u reclip -f`
 
 ## Usage
 
@@ -43,6 +68,27 @@ docker build -t reclip . && docker run -p 8899:8899 reclip
 3. Click **Fetch** to load video info and thumbnails
 4. Select quality/resolution if available
 5. Click **Download** on individual videos, or **Download All**
+
+## Authentication / Setup
+
+ReClip is secured with a password login. Before starting the server, you must create a `config.json` file in the root directory containing a bcrypt hash of your chosen password. 
+
+To easily generate this file, run the included setup script from your terminal:
+
+```bash
+source venv/bin/activate
+python setup_password.py
+```
+
+Alternatively, you can manually create the `config.json` file using any bcrypt hash generator (like PHP's `password_hash()`):
+
+```json
+{
+  "admin_password_hash": "$2y$10$YOUR_BCRYPT_HASH_HERE"
+}
+```
+
+If you do not create this file or leave the hash empty, the app will refuse to start and will print a helpful error message. Upon successful login, your session is valid for 1 year.
 
 ## Supported Sites
 
