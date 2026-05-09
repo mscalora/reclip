@@ -3,6 +3,7 @@ import uuid
 import glob
 import json
 import subprocess
+import shlex
 import threading
 from functools import wraps
 from datetime import timedelta
@@ -55,13 +56,14 @@ def run_download(job_id, url, format_choice, format_id):
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
     elif format_id:
-        cmd += ["-f", f"{format_id}+bestaudio/best", "--merge-output-format", "mp4"]
+        cmd += ["-S", "vcodec:h264,res,acodec:m4a", "-f", f"{format_id}+bestaudio/best", "--merge-output-format", "mp4"]
     else:
-        cmd += ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
+        cmd += ["-S", "vcodec:h264,res,acodec:m4a", "-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
 
     cmd.append(url)
 
     try:
+        print(f"Executing: {shlex.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
             job["status"] = "error"
@@ -88,6 +90,27 @@ def run_download(job_id, url, format_choice, format_id):
                 except OSError:
                     pass
 
+        if format_choice != "audio":
+            try:
+                vcodec_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", chosen]
+                vcodec = subprocess.run(vcodec_cmd, capture_output=True, text=True).stdout.strip().lower()
+                if vcodec in ["vp9", "vp8", "av01", "vp09"]:
+                    transcoded_file = os.path.join(DOWNLOAD_DIR, f"{job_id}_transcoded.mp4")
+                    transcode_cmd = [
+                        "ffmpeg", "-i", chosen,
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-c:a", "aac", "-b:a", "128k",
+                        "-movflags", "+faststart",
+                        transcoded_file, "-y"
+                    ]
+                    print(f"Executing: {shlex.join(transcode_cmd)}")
+                    subprocess.run(transcode_cmd, capture_output=True)
+                    if os.path.exists(transcoded_file):
+                        os.remove(chosen)
+                        chosen = transcoded_file
+            except Exception as e:
+                print(f"Error checking codec or transcoding: {e}")
+
         job["file"] = chosen
         ext = os.path.splitext(chosen)[1]
         
@@ -107,6 +130,7 @@ def run_download(job_id, url, format_choice, format_id):
         if format_choice != "audio":
             try:
                 dur_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", chosen]
+                print(f"Executing: {shlex.join(dur_cmd)}")
                 dur_output = subprocess.run(dur_cmd, capture_output=True, text=True).stdout.strip()
                 if dur_output:
                     dur = float(dur_output)
@@ -121,6 +145,7 @@ def run_download(job_id, url, format_choice, format_id):
                     for key, timestamp in frames.items():
                         thumb_path = os.path.join(DOWNLOAD_DIR, f"{job_id}_{key}.jpg")
                         cmd = ["ffmpeg", "-ss", str(timestamp), "-i", chosen, "-vframes", "1", "-q:v", "2", thumb_path, "-y"]
+                        print(f"Executing: {shlex.join(cmd)}")
                         subprocess.run(cmd, capture_output=True)
                         if os.path.exists(thumb_path):
                             job["posters"][key] = thumb_path
@@ -187,8 +212,9 @@ def get_info():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    cmd = ["yt-dlp", "--no-playlist", "-j", url]
+    cmd = ["yt-dlp", "--no-playlist", "-S", "vcodec:h264,res,acodec:m4a", "-j", url]
     try:
+        print(f"Executing: {shlex.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
             return jsonify({"error": result.stderr.strip().split("\n")[-1]}), 400
